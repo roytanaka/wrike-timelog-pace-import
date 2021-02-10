@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <link
+      href="https://fonts.googleapis.com/css?family=Roboto:100,300,400,500,700,900"
+      rel="stylesheet"
+    />
+    <link
+      href="https://cdn.jsdelivr.net/npm/@mdi/font@4.x/css/materialdesignicons.min.css"
+      rel="stylesheet"
+    />
+    <link
+      href="https://cdn.jsdelivr.net/npm/vuetify@2.x/dist/vuetify.min.css"
+      rel="stylesheet"
+    />
+    <style>
+      [v-cloak] > * {
+        display: none;
+      }
+      .v-snack__wrapper {
+        min-width: 280px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <v-app>
+        <v-main>
+          <v-container v-cloak>
+            <h3>Import Timelog from Wrike</h3>
+            <v-row>
+              <v-col cols="12">
+                <v-select
+                  :items="deptArr"
+                  label="Department"
+                  v-model="department"
+                  @change="goToSheet"
+                ></v-select>
+              </v-col>
+            </v-row>
+            <v-row>
+              <v-col cols="12">
+                <v-menu
+                  v-model="startMenu"
+                  :close-on-content-click="false"
+                  transition="scale-transition"
+                  offset-y
+                  min-width="290px"
+                >
+                  <template v-slot:activator="{ on }">
+                    <v-text-field
+                      v-model="startDate"
+                      label="Select Start Date"
+                      prepend-icon="mdi-calendar"
+                      readonly
+                      v-on="on"
+                    ></v-text-field>
+                  </template>
+                  <v-date-picker
+                    v-model="startDate"
+                    no-title
+                    @input="startMenu = false"
+                  >
+                  </v-date-picker>
+                </v-menu>
+                <v-menu
+                  v-model="endMenu"
+                  :close-on-content-click="false"
+                  transition="scale-transition"
+                  offset-y
+                  min-width="290px"
+                >
+                  <template v-slot:activator="{ on }">
+                    <v-text-field
+                      v-model="endDate"
+                      label="Select End Date"
+                      prepend-icon="mdi-calendar"
+                      readonly
+                      v-on="on"
+                    ></v-text-field>
+                  </template>
+                  <v-date-picker
+                    v-model="endDate"
+                    no-title
+                    :min="startDate"
+                    @input="endMenu = false"
+                  >
+                  </v-date-picker>
+                </v-menu>
+              </v-col>
+            </v-row>
+            <v-row>
+              <v-col>
+                <v-btn
+                  @click="clearExportSheet"
+                  depressed
+                  block
+                  class="grey darken-2"
+                  dark
+                  >Clear</v-btn
+                >
+              </v-col>
+              <v-col>
+                <v-btn
+                  @click="submit"
+                  depressed
+                  block
+                  class="grey darken-2"
+                  dark
+                  >Submit</v-btn
+                >
+              </v-col>
+            </v-row>
+            <v-btn
+              class="mt-5"
+              outlined
+              block
+              href="http://pace.tigroup.ca/epace/company:public/system/multiObjectImport/start"
+              target="_blank"
+              >Pace Importer<v-icon class="ml-3">mdi-open-in-new</v-icon></v-btn
+            >
+            <v-snackbar top v-model="snackbar" color="error" :timeout="10000">
+              {{error}}
+              <v-btn dark text @click="snackbar = false"> Close </v-btn>
+            </v-snackbar>
+          </v-container>
+        </v-main>
+        <v-overlay :value="loading">
+          <v-progress-circular indeterminate size="64"></v-progress-circular>
+        </v-overlay>
+      </v-app>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/vue/dist/vue.js"></script>
+    <!-- <script src="https://cdn.jsdelivr.net/npm/vue"></script> -->
+    <script src="https://cdn.jsdelivr.net/npm/vuetify@2.x/dist/vuetify.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+
+    <script>
+      const app = new Vue({
+        el: '#app',
+        data: {
+          startMenu: false,
+          endMenu: false,
+          startDate: new Date().toISOString().split('T')[0],
+          endDate: new Date().toISOString().split('T')[0],
+          loading: true,
+          snackbar: false,
+          error: '',
+          departments: [
+            { department: 'Creative', sheet: 'Creative Export' },
+            { department: 'Prepress', sheet: 'Prepress Export' },
+          ],
+          department: '',
+        },
+        created() {
+          google.script.run
+            .withSuccessHandler((sheet) => {
+              const currDept = this.getDeptName(sheet);
+              if (currDept) {
+                this.department = currDept;
+              }
+            })
+            .getCurrentSheet();
+
+          this.loading = false;
+        },
+        computed: {
+          deptArr() {
+            return this.departments.map((dept) => dept.department);
+          },
+        },
+        methods: {
+          clearExportSheet() {
+            const sheetName = this.getSheetName(this.department);
+            this.loading = true;
+            google.script.run
+              .withSuccessHandler(() => {
+                this.loading = false;
+              })
+              .clearExports(sheetName);
+          },
+          async submit() {
+            if (this.startDate === this.endDate) {
+              this.error = 'Error: Date range must be greater than 1 day.';
+              this.snackbar = true;
+              return;
+            }
+
+            this.loading = true;
+            const sheetName = this.getSheetName(this.department);
+
+            google.script.run
+              .withSuccessHandler(() => {
+                this.loading = false;
+              })
+              .withFailureHandler((error) => {
+                this.error = error.message;
+                this.snackbar = true;
+                this.loading = false;
+              })
+              .fetchTimelog(this.startDate, this.endDate, sheetName);
+          },
+          goToSheet(dept) {
+            this.loading = true;
+            this.folder = null;
+            const sheetName = this.getSheetName(dept);
+            google.script.run
+              .withSuccessHandler(() => (this.loading = false))
+              .withFailureHandler((error) => {
+                this.error = error.message;
+                this.snackbar = true;
+                this.loading = false;
+              })
+              .gotToSheet(sheetName);
+          },
+          getSheetName(dept) {
+            return this.departments.find((d) => d.department === dept).sheet;
+          },
+          getDeptName(sheet) {
+            return this.departments.find((d) => d.sheet === sheet).department;
+          },
+        },
+        vuetify: new Vuetify(),
+      });
+    </script>
+  </body>
+</html>
